@@ -15,20 +15,23 @@ from datetime import timedelta
 
 # ======= 自動判斷類別 =======
 def classify_ticker(ticker):
-    ticker = ticker.lower()
-    if any(keyword in ticker for keyword in ['gold', 'silver', 'gc=', 'si=', 'hg=', 'pl=', 'pa=']):
+    """
+    自動判斷商品類型，yfinance 正確代號版本
+    """
+    ticker = ticker.upper()
+    if any(keyword in ticker for keyword in ['GOLD', 'SILVER', 'GC=F', 'SI=F', 'HG=F', 'PL=F', 'PA=F']):
         return "metal"           # 貴金屬
-    elif any(keyword in ticker for keyword in ['cl=', 'brent', 'ng=', 'oil', 'rb=', 'ho=']):
+    elif any(keyword in ticker for keyword in ['CL=F', 'BRENT', 'NG=F', 'OIL', 'RB=F', 'HO=F']):
         return "energy"          # 能源
-    elif any(keyword in ticker for keyword in ['corn', 'soy', 'wheat', 'zC=', 'zs=', 'zw=', 'kc=']):
+    elif any(keyword in ticker for keyword in ['CORN', 'SOY', 'WHEAT', 'ZC=F', 'ZS=F', 'ZW=F', 'KC=F']):
         return "agriculture"     # 農產品
-    elif any(keyword in ticker for keyword in ['aapl', 'msft', 'goog', 'meta', 'tsla', 'nvda']):
+    elif any(keyword in ticker for keyword in ['AAPL', 'MSFT', 'GOOG', 'META', 'TSLA', 'NVDA']):
         return "tech"            # 科技股
-    elif any(keyword in ticker for keyword in ['spy', 'qqq', 'iwm', 'voo', 'vti']):
+    elif any(keyword in ticker for keyword in ['SPY', 'QQQ', 'IWM', 'VOO', 'VTI']):
         return "etf"             # 指數ETF
-    elif any(keyword in ticker for keyword in ['es=', 'nq=', 'ym=', 'rtY=']):
+    elif any(keyword in ticker for keyword in ['ES=F', 'NQ=F', 'YM=F', 'RTY=F']):
         return "index_futures"   # 股指期貨
-    elif any(keyword in ticker for keyword in ['jpy', 'eur', 'aud', 'gbp', 'fx', 'usd']):
+    elif any(keyword in ticker for keyword in ['JPY=X', 'EUR=X', 'AUD=X', 'GBP=X', 'FX', 'USD']):
         return "forex"           # 外匯
     else:
         return "stock"           # 其他股票
