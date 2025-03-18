@@ -6,7 +6,32 @@ import plotly.graph_objects as go
 import time
 from datetime import timedelta
 
+#cd "C:\Users\0619h\OneDrive\Desktop\streamlit-stock-app"
+#git add .
+#git commit -m "你這次改了什麼"
+#git push origin main
+
 ######################## 幫助函式 ########################
+
+# ======= 自動判斷類別 =======
+def classify_ticker(ticker):
+    ticker = ticker.lower()
+    if any(keyword in ticker for keyword in ['gold', 'silver', 'gc=', 'si=', 'hg=', 'pl=', 'pa=']):
+        return "metal"           # 貴金屬
+    elif any(keyword in ticker for keyword in ['cl=', 'brent', 'ng=', 'oil', 'rb=', 'ho=']):
+        return "energy"          # 能源
+    elif any(keyword in ticker for keyword in ['corn', 'soy', 'wheat', 'zC=', 'zs=', 'zw=', 'kc=']):
+        return "agriculture"     # 農產品
+    elif any(keyword in ticker for keyword in ['aapl', 'msft', 'goog', 'meta', 'tsla', 'nvda']):
+        return "tech"            # 科技股
+    elif any(keyword in ticker for keyword in ['spy', 'qqq', 'iwm', 'voo', 'vti']):
+        return "etf"             # 指數ETF
+    elif any(keyword in ticker for keyword in ['es=', 'nq=', 'ym=', 'rtY=']):
+        return "index_futures"   # 股指期貨
+    elif any(keyword in ticker for keyword in ['jpy', 'eur', 'aud', 'gbp', 'fx', 'usd']):
+        return "forex"           # 外匯
+    else:
+        return "stock"           # 其他股票
 
 def download_data(ticker):
     df = yf.download(ticker, period='max', interval='1d', auto_adjust=False)
@@ -41,6 +66,24 @@ def get_vix_value(dt, vix_df):
         return float(vix_df["Close"].iloc[0])
     return float(vix_df.loc[valid_idx[-1], "Close"])
 
+# 加權隨機選樣本函式 - 全程會用到
+def weighted_random_choice(candidates):
+    """
+    加權隨機選擇樣本，分數越高權重越高
+    :param candidates: List of (index, score) tuple
+    :return: 選中的 (index, score)
+    """
+    scores = np.array([s for (_, s) in candidates])
+    weights = scores / scores.sum()
+    idx = np.random.choice(len(candidates), p=weights)
+    return candidates[idx]
+
+def generate_future_dates(history_dates, fut_len):
+    # 直接從最後一天後面產生交易日
+    start_date = history_dates[-1] + timedelta(days=1)
+    future_dates = pd.bdate_range(start=start_date, periods=fut_len)
+    return future_dates
+
 ###################### Step1: 圖形 ######################
 
 def kbar_features(df):
@@ -64,24 +107,6 @@ def shape_distance(A, B):
         return 999999
     dist = np.sqrt(((A - B) ** 2).sum(axis=1)).mean()
     return dist * 100 
-
-# 加權隨機選樣本函式 - 全程會用到
-def weighted_random_choice(candidates):
-    """
-    加權隨機選擇樣本，分數越高權重越高
-    :param candidates: List of (index, score) tuple
-    :return: 選中的 (index, score)
-    """
-    scores = np.array([s for (_, s) in candidates])
-    weights = scores / scores.sum()
-    idx = np.random.choice(len(candidates), p=weights)
-    return candidates[idx]
-
-def generate_future_dates(history_dates, fut_len):
-    # 直接從最後一天後面產生交易日
-    start_date = history_dates[-1] + timedelta(days=1)
-    future_dates = pd.bdate_range(start=start_date, periods=fut_len)
-    return future_dates
 
 def filter_by_shape(curr_seg, df, seg_len, fut_len, shape_thr):
     """
@@ -152,6 +177,21 @@ def final_vix_filter(curr_seg, df, atr_list, seg_len, vix_df):
         final.append((i, total))
     return final
 
+# ======= 根據商品類型決定比對方法 =======
+def select_matching_method(product_type):
+    """
+    依據商品類型決定比對方法：
+    - metal、energy、agriculture 偏向技術面形態主導
+    - forex、index_futures 加強波動比對
+    - tech、etf、stock 綜合考量
+    """
+    if product_type in ["metal", "energy", "agriculture"]:
+        return "shape_first"  # 圖形優先
+    elif product_type in ["forex", "index_futures"]:
+        return "volatility_first"  # 波動優先
+    else:
+        return "balanced"  # 綜合考量
+
 def find_best_match_advanced(df, vix_df, seg_len, fut_len, shape_thr, vol_thr, topN):
     if len(df) < seg_len + fut_len:
         return None
@@ -176,7 +216,24 @@ def find_best_match_advanced(df, vix_df, seg_len, fut_len, shape_thr, vol_thr, t
 
     if len(final_list) < topN:
         st.warning(f"⚠️ 最終樣本數 {len(final_list)}，小於 TopN={topN}")
-    return final_list
+
+    # ✅ 自動根據 match_mode 決定篩選邏輯
+    match_mode = st.session_state.get('match_mode', 'balanced')
+    st.write(f"🧠 自動比對邏輯：{match_mode}")
+
+    if match_mode == "shape_first":
+        # 圖形分數最高者優先
+        final_list_sorted = sorted(final_list, key=lambda x: x[1], reverse=True)
+    elif match_mode == "volatility_first":
+        # 波動分數更高的優先，這裡因為已加權，直接排序即可
+        final_list_sorted = sorted(final_list, key=lambda x: x[1], reverse=True)
+    else:
+        # balanced 模式直接用加權分數排序
+        final_list_sorted = sorted(final_list, key=lambda x: x[1], reverse=True)
+
+    # ✅ 只取 TopN
+    final_list_sorted = final_list_sorted[:topN]
+    return final_list_sorted
 
 ###################### 複製未來K棒 (百分比) ######################
 
@@ -221,23 +278,54 @@ def main():
     seg_len = st.number_input("Segment Length(看幾根K棒)", 5, 50, 10)
     fut_len = st.number_input("Future Copy(複製幾根K棒)", 1, 20, 5)
     total_predict = st.slider("總預測天數", 5, 200, 50)
+
+    # 根據類別給不同預設參數
+    def get_default_params(category, mode):
+        if category == "metal":
+            if mode == "保守": return 350, 85, 5
+            if mode == "平衡": return 500, 80, 10
+            if mode == "寬鬆": return 700, 75, 15
+        elif category == "energy":
+            if mode == "保守": return 600, 90, 5
+            if mode == "平衡": return 1000, 80, 10
+            if mode == "寬鬆": return 1500, 70, 20
+        elif category == "agriculture":
+            if mode == "保守": return 400, 85, 5
+            if mode == "平衡": return 600, 80, 10
+            if mode == "寬鬆": return 900, 75, 15
+        elif category == "tech":
+            if mode == "保守": return 1200, 85, 5
+            if mode == "平衡": return 1800, 80, 10
+            if mode == "寬鬆": return 2500, 70, 20
+        elif category == "etf":
+            if mode == "保守": return 1000, 85, 5
+            if mode == "平衡": return 1500, 80, 10
+            if mode == "寬鬆": return 2000, 75, 20
+        elif category == "index_futures":
+            if mode == "保守": return 800, 85, 5
+            if mode == "平衡": return 1200, 80, 10
+            if mode == "寬鬆": return 1800, 75, 20
+        elif category == "forex":
+            if mode == "保守": return 300, 85, 5
+            if mode == "平衡": return 500, 80, 10
+            if mode == "寬鬆": return 800, 75, 15
+        else:  # stock
+            if mode == "保守": return 1000, 85, 5
+            if mode == "平衡": return 1500, 80, 10
+            if mode == "寬鬆": return 2000, 75, 20
+
     # 模式切換 + 自訂
+    category = classify_ticker(ticker)
+    match_mode = select_matching_method(category)
+    st.write(f"📊 系統判斷類型：{category}")
+    st.write(f"🧠 比對策略：{match_mode}")
+    st.session_state['match_mode'] = match_mode
+
     mode = st.selectbox("⚙️ 預設模式選擇", ["保守", "平衡", "寬鬆", "自訂"])
 
-    if mode == "保守":
-        shape_thr = 800
-        vol_thr = 90.0
-        topN = 5
-    elif mode == "平衡":
-        shape_thr = 1500
-        vol_thr = 80.0
-        topN = 20
-    elif mode == "寬鬆":
-        shape_thr = 2500
-        vol_thr = 50.0
-        topN = 40
+    if mode != "自訂":
+        shape_thr, vol_thr, topN = get_default_params(category, mode)
     else:
-        # 自訂模式才能動
         shape_thr = st.slider("Shape Threshold (圖形閾值)", 0, 3000, 1500)
         vol_thr = st.slider("波動門檻 (0~100)", min_value=20.0, max_value=100.0, value=80.0, step=0.1)
         topN = st.slider("TopN 隨機選擇", 1, 50, 20)
@@ -246,6 +334,14 @@ def main():
     st.write(f"✅ Shape Threshold：{shape_thr}")
     st.write(f"✅ Volatility Threshold：{vol_thr}")
     st.write(f"✅ TopN：{topN}")
+
+    # ✅ 顯示比對策略提示區塊
+    if match_mode == "shape_first":
+        st.info("🟢 **比對策略：技術面形態優先（Shape First）**\n適用：貴金屬、能源、農產品")
+    elif match_mode == "volatility_first":
+        st.info("🔵 **比對策略：波動特性優先（Volatility First）**\n適用：外匯、股指期貨")
+    else:
+        st.info("🟡 **比對策略：綜合考量（Balanced）**\n適用：科技股、ETF、一般股票")
 
     # ✅ 下載資料
     if st.button("下載資料"):
@@ -428,7 +524,7 @@ def main():
                 'scrollZoom': True,
                 'displayModeBar': True,  # 顯示右上工具列，方便手動放大
                 'doubleClick': 'reset',  # 雙擊還原視角
-                'modeBarButtonsToRemove': ['zoomIn2d', 'zoomOut2d'],  # 移除內建縮放鍵，避免干擾
+                'modeBarButtonsToRemove': ['zoomIn2d', 'zoomOut2d', 'autoScale2d'],  # 移除內建縮放鍵，避免干擾
             })
             st.success("✅ 預測完成! 可滑鼠拖曳、縮放")
 
