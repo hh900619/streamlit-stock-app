@@ -220,10 +220,32 @@ def main():
     ticker = st.text_input("股票代號 (e.g. AAPL):", value="AAPL")
     seg_len = st.number_input("Segment Length(看幾根K棒)", 5, 50, 10)
     fut_len = st.number_input("Future Copy(複製幾根K棒)", 1, 20, 5)
-    custom_steps = st.number_input("想預測總天數?", 5, 200, 50)
-    shape_thr = st.slider("Shape Threshold (圖形閾值)", 0, 3000, 1500)
-    vol_thr = st.slider("波動門檻(0~100)", min_value=20.0, max_value=100.0, value=80.0, step=0.1)
-    topN = st.slider("TopN 隨機選擇", 1, 50, 20)
+    total_predict = st.slider("總預測天數", 5, 200, 50)
+    # 模式切換 + 自訂
+    mode = st.selectbox("⚙️ 預設模式選擇", ["保守", "平衡", "寬鬆", "自訂"])
+
+    if mode == "保守":
+        shape_thr = 800
+        vol_thr = 90.0
+        topN = 5
+    elif mode == "平衡":
+        shape_thr = 1500
+        vol_thr = 80.0
+        topN = 20
+    elif mode == "寬鬆":
+        shape_thr = 2500
+        vol_thr = 50.0
+        topN = 40
+    else:
+        # 自訂模式才能動
+        shape_thr = st.slider("Shape Threshold (圖形閾值)", 0, 3000, 1500)
+        vol_thr = st.slider("波動門檻 (0~100)", min_value=20.0, max_value=100.0, value=80.0, step=0.1)
+        topN = st.slider("TopN 隨機選擇", 1, 50, 20)
+
+    st.write(f"✅ 當前模式：{mode}")
+    st.write(f"✅ Shape Threshold：{shape_thr}")
+    st.write(f"✅ Volatility Threshold：{vol_thr}")
+    st.write(f"✅ TopN：{topN}")
 
     # ✅ 下載資料
     if st.button("下載資料"):
@@ -283,7 +305,6 @@ def main():
             st.session_state['fut_len'] = fut_len
             st.write(f"🧠 目前 shape_thr = {shape_thr}")
 
-            total_predict = st.slider("總預測天數", 5, 200, 50)
             st.session_state['total_predict'] = total_predict  # ✅ 直接存
 
             pred_days, loop_count, logs = 0, 0, []
@@ -355,15 +376,17 @@ def main():
 
             fig = go.Figure()
             fig.update_layout(
-                template="plotly_dark",
-                title=f"{ticker} 預測結果（藍線為預測起點）",
-                xaxis_title="日期",
-                yaxis_title="價格",
-                hovermode="x unified",
+                hovermode='x unified',
                 dragmode='zoom',
-                xaxis=dict(fixedrange=False, tickformat="%Y-%m-%d"),
-                yaxis=dict(fixedrange=False),
-                font=dict(family="Microsoft JhengHei", size=14)  # 中文優化
+                xaxis=dict(
+                    tickformat="%Y-%m-%d",
+                    showgrid=True,
+                    rangeslider_visible=False
+                ),
+                yaxis=dict(
+                    fixedrange=False
+                ),
+                font=dict(family="Microsoft JhengHei", size=14),
             )
 
             fig.add_trace(go.Candlestick(
@@ -401,7 +424,12 @@ def main():
                 rangeslider_visible=False
             )
 
-            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+            st.plotly_chart(fig, use_container_width=True, config={
+                'scrollZoom': True,
+                'displayModeBar': True,  # 顯示右上工具列，方便手動放大
+                'doubleClick': 'reset',  # 雙擊還原視角
+                'modeBarButtonsToRemove': ['zoomIn2d', 'zoomOut2d'],  # 移除內建縮放鍵，避免干擾
+            })
             st.success("✅ 預測完成! 可滑鼠拖曳、縮放")
 
 def run_app():
