@@ -1,22 +1,3 @@
-"""
-程式名稱: ThreeStepStreamlit.py
-
-功能:
-  - 在網頁主畫面顯示所有輸入欄位 (包括日期輸入)
-  - 三步驟比對(圖形->ATR->VIX)，前N名隨機取一
-  - 複製未來K棒(百分比方式)進行迭代預測
-  - 以 Plotly Candlestick 呈現結果 (自帶滑鼠滾輪縮放/拖曳/hover)
-
-如何使用:
-1) pip install streamlit plotly yfinance talib
-2) streamlit run app.py
-3) 在瀏覽器介面輸入股票代號, seg_len, fut_len, shape_thr, atr_thr, topN, 
-   自訂 [顯示起始日], [垂直線日期] => 按 [執行預測]
-4) 即可查看預測LOG與蠟燭圖
-給別人使用:
-- 把此檔及 requirements.txt 提供給對方 => 對方安裝後 streamlit run app.py 即可
-"""
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -235,7 +216,7 @@ def copy_future_bars_percent_mode(df, best_i, fut_len):
 ################### Streamlit App #####################
 
 def main():
-    st.title("三步驟比對 (圖形→波動→VIX) + 迭代預測 + Plotly Candlestick")
+    st.title("股價比對")
     ticker = st.text_input("股票代號 (e.g. AAPL):", value="AAPL")
     seg_len = st.number_input("Segment Length(看幾根K棒)", 5, 50, 10)
     fut_len = st.number_input("Future Copy(複製幾根K棒)", 1, 20, 5)
