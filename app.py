@@ -1,7 +1,7 @@
 
 #cd "C:\Users\0619h\OneDrive\Desktop\streamlit-stock-app"
 #git add .
-#git commit -m "你這次改了什麼"
+#git commit -m "改"
 #git push origin main
 #CgHu2J*86QcWXEi
 
@@ -422,33 +422,34 @@ def find_best_match_advanced(df, vix_df, seg_len, fut_len, total_score_thr, dtw_
 ################################✅ 1️⃣1️⃣ 主程式 main() ################################
 
 def get_default_params_v2(mode, dtw_range, score_range):
+    """
+    根據歷史統計區間與模式設定預設參數，因為正規化後 DTW 數值較小，
+    所以 dtw_thr 也設定為較小的值。
+    回傳 (total_score_thr, topN, dtw_thr)
+    """
     dtw_min, dtw_max = dtw_range
     score_min, score_max = score_range
 
     if mode == "保守":
+        # 取較低門檻，保留更多候選樣本
         total_score_thr = int((score_min + score_max) / 3)
         topN = 30
-        # 假設現在觀察到 DTW 多在 3~6 之間，就把 dtw_thr 設在 5
-        dtw_thr = 5
-
+        dtw_thr = 5  # 由於正規化後 DTW 數值通常在 3 左右，故此處設定為 5
     elif mode == "平衡":
         total_score_thr = int((score_min + score_max) / 2)
         topN = 50
-        # 也可再稍微放寬一點，比如 8
         dtw_thr = 8
-
     elif mode == "寬鬆":
         total_score_thr = int(score_min * 0.8)
         topN = 80
-        # 寬鬆模式可以再放大一點，比如 10
         dtw_thr = 10
-
     else:  # 自訂模式
         total_score_thr = st.slider("總分門檻 (0~100)", min_value=20.0, max_value=100.0, value=80.0, step=0.1)
         topN = st.slider("TopN 隨機選擇", 1, 200, 50)
         dtw_thr = st.slider("DTW 閾值", min_value=1, max_value=50, value=5)
-
+    
     return total_score_thr, topN, dtw_thr
+
 
 def main():
     st.title("股價比對")
@@ -457,26 +458,35 @@ def main():
     fut_len = st.number_input("Future Copy(複製幾根K棒)", 1, 20, 5)
     total_predict = st.slider("總預測天數", 5, 200, 50)
 
-    # 取得產品類型，用來記錄在資料庫中
+    # 取得產品類型（僅用於資料庫記錄）
     category = classify_ticker(ticker)
+
     # 讀取歷史統計資料
+    stats_count = get_stats_count_from_supabase(ticker)
     stats = get_stat_ranges_from_supabase(ticker)
-    if stats and get_stats_count_from_supabase(ticker) >= 30:
+    if stats and stats_count >= 30:
+        st.success(f"✅ 已累積 {stats_count} 筆歷史統計資料，啟用【歷史參數模式】")
         dtw_min, dtw_max = stats['dtw_min'], stats['dtw_max']
         score_min, score_max = stats['score_min'], stats['score_max']
-        dtw_range = (max(dtw_min * 0.9, 10), min(dtw_max * 1.1, 60))
-        score_range = (max(score_min * 0.9, 30), min(score_max * 1.1, 80))
-        st.write(f"📈 歷史建議 DTW 區間：{dtw_range}")
-        st.write(f"📈 歷史建議總分區間：{score_range}")
+        st.write(f"🌀 資料庫 DTW 統計: min={dtw_min:.2f}, max={dtw_max:.2f}")
+        st.write(f"📏 資料庫 Score 統計: min={score_min:.2f}, max={score_max:.2f}")
+        # 因為正規化後 DTW 數值通常偏小，這裡設定一個較小的建議範圍
+        dtw_range = (max(dtw_min * 0.9, 0.1), min(dtw_max * 1.1, 20))
+        score_range = (max(score_min * 0.9, 10), min(score_max * 1.1, 100))
+        st.write(f"📈 建議 DTW 區間：{dtw_range}")
+        st.write(f"📈 建議 Score 區間：{score_range}")
     else:
-        dtw_range = (20, 50)
-        score_range = (40, 60)
-        st.write(f"📈 無歷史統計或資料不足，使用預設範圍")
+        st.warning(f"⚠️ 歷史資料僅 {stats_count} 筆，使用【預設參數模式】")
+        dtw_range = (1, 10)
+        score_range = (30, 60)
+        st.write(f"📈 預設 DTW 區間：{dtw_range}")
+        st.write(f"📈 預設 Score 區間：{score_range}")
 
     mode = st.selectbox("⚙️ 預設模式選擇", ["保守", "平衡", "寬鬆", "自訂"])
     total_score_thr, topN, dtw_thr = get_default_params_v2(mode, dtw_range, score_range)
-    st.success(f"🎲 隨機參數已生成 ➔ Total_score_thr: {total_score_thr}, TopN: {topN}, DTW_thr: {dtw_thr}")
+    st.success(f"🎲 產生參數：total_score_thr={total_score_thr}, topN={topN}, dtw_thr={dtw_thr}")
 
+    # 存入 session_state
     st.session_state['ticker'] = ticker
     st.session_state['category'] = category
     st.session_state['mode'] = mode
@@ -484,6 +494,7 @@ def main():
     st.session_state['dtw_thr'] = dtw_thr
     st.session_state['total_score_thr'] = total_score_thr
 
+    # 下載資料按鈕
     if st.button("下載資料"):
         df = download_data(ticker)
         if df.empty:
@@ -553,7 +564,7 @@ def main():
                     dtw_thr=st.session_state['dtw_thr'],
                     topN=st.session_state['topN'],
                     ticker=ticker,
-                    category=category,
+                    category=st.session_state['category'],
                     mode=mode
                 )
 
@@ -561,8 +572,10 @@ def main():
                     logs.append(f"第 {loop_count} 次 => 找不到符合條件樣本，停止")
                     break
 
-                topN_dynamic = random.randint(max(3, int(st.session_state['topN'] * 0.8)),
-                                               int(st.session_state['topN'] * 1.2))
+                topN_dynamic = random.randint(
+                    max(3, int(st.session_state['topN'] * 0.8)),
+                    int(st.session_state['topN'] * 1.2)
+                )
                 st.info(f"🎲 動態 TopN = {topN_dynamic}")
 
                 final_list = [(idx, score + random.uniform(-5, 5)) for idx, score in final_list]
@@ -581,6 +594,7 @@ def main():
                 if dates is None:
                     logs.append("⚠ 後續K棒不足，停止")
                     break
+
                 new_rows = pd.DataFrame(new_ohlc, columns=["Open", "High", "Low", "Close"], index=dates)
                 df = pd.concat([df, new_rows]).sort_index()
                 pred_days += fut_len
