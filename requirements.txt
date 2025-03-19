@@ -1,7 +1,8 @@
 streamlit
-yfinance
-pandas
-numpy
 plotly
-fastdtw
+numpy
+pandas
+yfinance
+python-dotenv
+supabase
 dtaidistance

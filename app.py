@@ -3,51 +3,58 @@
 #git add .
 #git commit -m "你這次改了什麼"
 #git push origin main
-
+#CgHu2J*86QcWXEi
 
 import streamlit as st
+st.set_page_config(page_title="比對", layout="wide")
 import plotly.graph_objects as go
 import time
 from numpy.linalg import norm
 from dtaidistance import dtw
 import random
+import datetime
+import os
+from dotenv import load_dotenv
+from supabase import create_client
 
 ################################✅ 1️⃣ 資料庫初始化區 ################################
 
-import sqlite3
+# ✅ 載入本地 .env
+load_dotenv()
 
-DB_NAME = 'prediction_stats.db'
+# ✅ 本機優先讀 .env，Cloud 再讀 st.secrets
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-def init_db():
-    conn = sqlite3.connect('prediction_stats.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT,
-            category TEXT,
-            mode TEXT,
-            dtw_min REAL,
-            dtw_max REAL,
-            dtw_avg REAL,
-            total_score_min REAL,
-            total_score_max REAL,
-            total_score_avg REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
+if not SUPABASE_URL or not SUPABASE_KEY:
+    try:
+        SUPABASE_URL = st.secrets["SUPABASE_URL"]
+        SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    except Exception as e:
+        st.error("❌ Supabase 設定錯誤，請檢查 .env 或 secrets.toml")
+        st.stop()
 
-def save_stats_to_db(ticker, category, mode, dtw_min, dtw_max, dtw_avg, total_score_min, total_score_max, total_score_avg):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO stats (ticker, category, mode, dtw_min, dtw_max, dtw_avg, total_score_min, total_score_max, total_score_avg)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (ticker, category, mode, dtw_min, dtw_max, dtw_avg, total_score_min, total_score_max, total_score_avg))
-    conn.commit()
-    conn.close()
+# ✅ 建立 Supabase 連線
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# 存資料函式
+def save_stats_to_supabase(ticker, category, mode,
+                           dtw_min, dtw_max, dtw_avg,
+                           total_score_min, total_score_max, total_score_avg):
+    data = {
+        "ticker": ticker,
+        "category": category,
+        "mode": mode,
+        "dtw_min": dtw_min,
+        "dtw_max": dtw_max,
+        "dtw_avg": dtw_avg,
+        "total_score_min": total_score_min,
+        "total_score_max": total_score_max,
+        "total_score_avg": total_score_avg,
+        "created_at": datetime.datetime.utcnow().isoformat()  # 你有這欄位
+    }
+    response = supabase.table("stats").insert(data).execute()
+    print("✅ 寫入 Supabase 完成", response)
 
 ################################✅ 2️⃣ 資料下載區 ################################
 
@@ -132,38 +139,36 @@ def weighted_random_choice(candidates):
 
 ################################✅ 4️⃣ 統計查詢函式（連資料庫用）################################
 
-def get_stat_ranges_from_db(ticker):
-    conn = sqlite3.connect('prediction_stats.db')
-    query = """
-        SELECT 
-            MIN(dtw_min), MAX(dtw_max), AVG(dtw_avg),
-            MIN(total_score_min), MAX(total_score_max), AVG(total_score_avg)
-        FROM stats
-        WHERE ticker = ?
-    """
-    result = conn.execute(query, (ticker,)).fetchone()
-    conn.close()
+def get_stat_ranges_from_supabase(ticker):
+    response = supabase.table('stats').select(
+        'dtw_min, dtw_max, dtw_avg, total_score_min, total_score_max, total_score_avg'
+    ).eq('ticker', ticker).execute()
 
-    if result and all(r is not None for r in result):
-        dtw_min, dtw_max, dtw_avg, score_min, score_max, score_avg = result
-        return {
-            'dtw_min': dtw_min,
-            'dtw_max': dtw_max,
-            'dtw_avg': dtw_avg,
-            'score_min': score_min,
-            'score_max': score_max,
-            'score_avg': score_avg
-        }
-    else:
+    if not response.data:
         return None
 
-def get_stats_count(ticker):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM stats WHERE ticker = ?', (ticker,))
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
+    # 聚合計算 min/max/avg
+    dtw_min = min(item['dtw_min'] for item in response.data)
+    dtw_max = max(item['dtw_max'] for item in response.data)
+    dtw_avg = sum(item['dtw_avg'] for item in response.data) / len(response.data)
+    score_min = min(item['total_score_min'] for item in response.data)
+    score_max = max(item['total_score_max'] for item in response.data)
+    score_avg = sum(item['total_score_avg'] for item in response.data) / len(response.data)
+
+    return {
+        'dtw_min': dtw_min,
+        'dtw_max': dtw_max,
+        'dtw_avg': dtw_avg,
+        'score_min': score_min,
+        'score_max': score_max,
+        'score_avg': score_avg
+    }
+
+def get_stats_count_from_supabase(ticker):
+    response = supabase.table('stats').select('id').eq('ticker', ticker).execute()
+    if not response.data:
+        return 0  # 🔥 查無資料時回傳 0
+    return len(response.data)
 
 ################################✅ 5️⃣ 技術分析＆特徵計算區 ################################
 
@@ -267,13 +272,6 @@ def filter_by_shape(curr_seg, df, seg_len, fut_len, dtw_thr):
     if dtw_list:
         min_dtw, max_dtw, avg_dtw = min(dtw_list), max(dtw_list), np.mean(dtw_list)
         st.write(f"🌀 DTW min={min_dtw:.2f}, max={max_dtw:.2f}, avg={avg_dtw:.2f}")
-        # 動態調整 dtw_thr（可選）
-        if dtw_thr < min_dtw:
-            dtw_thr = min_dtw + 5
-            st.warning(f"⚠️ DTW Threshold 過低，自動調整為 {dtw_thr:.2f}")
-        elif dtw_thr > max_dtw:
-            dtw_thr = max_dtw + 5
-            st.warning(f"⚠️ DTW Threshold 過高，自動調整為 {dtw_thr:.2f}")
 
     return candidates, dtw_thr
 
@@ -301,28 +299,12 @@ def compute_total_scores(curr_seg, df, shape_candidates, seg_len, total_score_th
         avg_score = np.mean(total_scores)
         st.write(f"📏 綜合總分 min={min_score:.2f}, max={max_score:.2f}, avg={avg_score:.2f}")
 
-        # 自動調整 total_score_thr
-        if total_score_thr < min_score:
-            adjust_thr = min_score + 5
-            st.warning(f"⚠️ 目前 total_score_thr={total_score_thr}，過低，自動拉高為 {adjust_thr:.2f}")
-            total_score_thr = adjust_thr
-        elif total_score_thr > max_score:
-            adjust_thr = max_score - 5
-            st.warning(f"⚠️ 目前 total_score_thr={total_score_thr}，過高，自動降低為 {adjust_thr:.2f}")
-            total_score_thr = adjust_thr
-
     if dtw_list:
         min_dtw, max_dtw = min(dtw_list), max(dtw_list)
         avg_dtw = np.mean(dtw_list)
         st.write(f"🌀 DTW 距離 min={min_dtw:.2f}, max={max_dtw:.2f}, avg={avg_dtw:.2f}")
-        if dtw_thr < min_dtw:
-            dtw_thr = min_dtw + 5
-            st.warning(f"⚠️ DTW Threshold 過低，自動調整為 {dtw_thr:.2f}")
-        elif dtw_thr > max_dtw:
-            dtw_thr = max_dtw + 5
-            st.warning(f"⚠️ DTW Threshold 過高，自動調整為 {dtw_thr:.2f}")
 
-    save_stats_to_db(
+    save_stats_to_supabase(
         ticker=st.session_state['ticker'],
         category=st.session_state['category'],
         mode=st.session_state['mode'],
@@ -464,7 +446,6 @@ def find_best_match_advanced(df, vix_df, seg_len, fut_len, total_score_thr, topN
 ################################✅ 1️⃣1️⃣ 主程式 main() ################################
 
 def main():
-    init_db()
     st.title("股價比對")
     ticker = st.text_input("股票代號 (e.g. AAPL):", value="AAPL")
     seg_len = st.number_input("Segment Length(看幾根K棒)", 5, 50, 10)
@@ -477,7 +458,7 @@ def main():
     st.write(f"📊 系統判斷類型：{category}")
     st.write(f"🧠 比對策略：{match_mode}")
 
-    stats_count = get_stats_count(ticker)
+    stats_count = get_stats_count_from_supabase(ticker) or 0
     if stats_count >= 30:
         st.success(f"✅ 已累積 {stats_count} 筆歷史統計資料，啟用【歷史參數模式】")
         use_history = True
@@ -486,7 +467,7 @@ def main():
         use_history = False
 
     # ✅ 讀取歷史資料統計，放在這裡，讓後面的 get_default_params 有依據
-    stats = get_stat_ranges_from_db(ticker)  # 自己的資料庫讀取函式
+    stats = get_stat_ranges_from_supabase(ticker)  # 自己的資料庫讀取函式
     if use_history and stats:
         # ✅ 啟用歷史統計範圍
         dtw_min, dtw_max = stats['dtw_min'], stats['dtw_max']
@@ -515,44 +496,44 @@ def main():
         score_min, score_max = score_range
 
         if category == "metal":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "energy":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "agriculture":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "tech":  # AAPL、NVDA
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "etf":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "index_futures":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min)*1.2, int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         elif category == "forex":
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
         else:  # stock 其他一般股票
-            if mode == "保守": return random.randint(int(score_min), int(score_max)), random.randint(5, 8), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "保守": return random.randint(int(score_min*0.8), int(score_max*0.8)), random.randint(5, 8), random.randint(int(dtw_min*0.8), int(dtw_max*0.8))
             if mode == "平衡": return random.randint(int(score_min), int(score_max)), random.randint(10, 15), random.randint(int(dtw_min), int(dtw_max))
-            if mode == "寬鬆": return random.randint(int(score_min), int(score_max)), random.randint(15, 20), random.randint(int(dtw_min), int(dtw_max))
+            if mode == "寬鬆": return random.randint(int(score_min*1.2), int(score_max*1.2)), random.randint(15, 20), random.randint(int(dtw_min*1.2), int(dtw_max*1.2))
 
     # ✅ 模式切換
     mode = st.selectbox("⚙️ 預設模式選擇", ["保守", "平衡", "寬鬆", "自訂"])
@@ -728,12 +709,12 @@ def main():
                 x=fdf.index,
                 open=fdf["Open"], high=fdf["High"],
                 low=fdf["Low"], close=fdf["Close"],
-                increasing_line_color="red",
-                decreasing_line_color="green",
+                increasing_line_color="red",    # ✅ 漲紅
+                decreasing_line_color="green",  # ✅ 跌綠
                 name="歷史＋預測"
             ))
 
-            # ✅ 解決你的報錯，Timestamp 轉字串
+            # ✅ 標記真實資料與預測分界
             fig.add_shape(
                 type="line",
                 x0=last_real_date,
@@ -745,6 +726,7 @@ def main():
                 yref='paper'
             )
 
+            # ✅ 自定垂直線（可選）
             if user_line_date:
                 fig.add_vline(
                     x=pd.to_datetime(user_line_date),
@@ -759,16 +741,31 @@ def main():
                 rangeslider_visible=False
             )
 
+            # ✅ 加入一鍵重置（實作邏輯：再畫一次）
+            if st.button("🔄 一鍵重置圖表"):
+                st.rerun()
+
+            # ✅ 畫圖（加強互動）
             st.plotly_chart(fig, use_container_width=True, config={
-                'scrollZoom': True,
-                'displayModeBar': True,  # 顯示右上工具列，方便手動放大
-                'doubleClick': 'reset',  # 雙擊還原視角
-                'modeBarButtonsToRemove': ['zoomIn2d', 'zoomOut2d', 'autoScale2d'],  # 移除內建縮放鍵，避免干擾
+                'scrollZoom': True,                  # 滾輪縮放
+                'displayModeBar': True,              # 工具列
+                'displaylogo': False,                # 移除右下角 Plotly logo
+                'doubleClick': 'reset',              # 雙擊重置
+                'editable': True,                    # 可編輯（標註、畫線）
+                'modeBarButtonsToRemove': ['zoomIn2d', 'zoomOut2d', 'autoScale2d'],  # 移除多餘按鈕
+                'modeBarButtonsToAdd': ['resetScale2d', 'drawline', 'drawopenpath', 'drawcircle', 'eraseshape'],  # 加功能
+                'toImageButtonOptions': {            # 支援下載圖片
+                    'format': 'png',
+                    'filename': 'prediction_chart',
+                    'height': 600,
+                    'width': 1200,
+                    'scale': 2
+                }
             })
-            st.success("✅ 預測完成! 可滑鼠拖曳、縮放")
+
+            st.success("✅ 預測完成! 可滑鼠拖曳、縮放，點『🔄 一鍵重置圖表』恢復原視角")
 
 def run_app():
-    st.set_page_config(page_title="三步驟比對", layout="wide")
     main()
 
 if __name__ == "__main__":
