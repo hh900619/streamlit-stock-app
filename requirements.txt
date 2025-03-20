@@ -5,4 +5,4 @@ pandas>=2.0
 yfinance>=0.2.37
 dtaidistance>=2.3.10
 python-dotenv>=1.0.1
-supabase-py>=2.1
+supabase
