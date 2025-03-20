@@ -16,6 +16,10 @@ import datetime
 import os
 from dotenv import load_dotenv
 from supabase import create_client
+import yfinance as yf
+import pandas as pd
+import numpy as np
+from datetime import timedelta
 
 ################################✅ 1️⃣ 資料庫初始化區 ################################
 
@@ -57,11 +61,6 @@ def save_stats_to_supabase(ticker, category, mode,
     print("✅ 寫入 Supabase 完成", response)
 
 ################################✅ 2️⃣ 資料下載區 ################################
-
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from datetime import timedelta
 
 def download_data(ticker):
     df = yf.download(ticker, period='max', interval='1d', auto_adjust=False)

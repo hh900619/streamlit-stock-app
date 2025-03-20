@@ -3,6 +3,6 @@ plotly
 numpy
 pandas
 yfinance
-python-dotenv
-supabase
 dtaidistance
+python-dotenv
+supabase-py
