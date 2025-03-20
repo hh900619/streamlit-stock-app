@@ -20,7 +20,7 @@ from supabase import create_client
 ################################✅ 1️⃣ 資料庫初始化區 ################################
 
 # 載入本地 .env
-load_dotenv()
+load_dotenv('app.env')
 
 # 本機優先讀 .env，Cloud 再讀 st.secrets
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -683,3 +683,4 @@ def run_app():
 
 if __name__ == "__main__":
     run_app()
+    
