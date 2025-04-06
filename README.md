@@ -1,3 +1,7 @@
+![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/Streamlit-Enabled-red?logo=streamlit)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 # 📈 Streamlit 股價型態預測系統
 
 ## 🔗 線上體驗（Live Demo）
